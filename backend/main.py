@@ -55,10 +55,11 @@ async def health_check():
 @app.post("/api/scan")
 async def start_scan(
     test: bool = Query(False, description="Test mode (scan only 10 stocks)"),
-    min_confidence: float = Query(0.45, description="Minimum pattern confidence"),
-    max_workers: int = Query(15, description="Number of parallel workers"),
+    full: bool = Query(False, description="Full mode (scan all 2000+ NSE stocks, slow)"),
+    min_confidence: float = Query(0.40, description="Minimum pattern confidence"),
+    max_workers: int = Query(8, description="Number of parallel workers"),
 ):
-    """Start a full scanner run across all NSE stocks."""
+    """Start a scanner run. Default scans ~150 curated liquid stocks."""
     if scanner_state.is_running:
         return JSONResponse(
             status_code=409,
@@ -72,6 +73,7 @@ async def start_scan(
             "max_workers": max_workers,
             "min_confidence": min_confidence,
             "test_mode": test,
+            "full_mode": full,
         },
         daemon=True
     )
@@ -79,6 +81,7 @@ async def start_scan(
 
     return {
         "message": "Scanner started",
+        "mode": "test" if test else ("full" if full else "curated"),
         "status": scanner_state.get_status()
     }
 

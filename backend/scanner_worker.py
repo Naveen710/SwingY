@@ -6,9 +6,12 @@ Parallel scanner that processes all NSE stocks concurrently.
 import time
 import logging
 import threading
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError
 
-from data_fetcher import get_stock_universe, fetch_ohlcv, fetch_nifty_data, passes_universe_filter
+from data_fetcher import (
+    get_stock_universe, fetch_ohlcv, fetch_nifty_data,
+    passes_universe_filter, FALLBACK_STOCKS
+)
 from indicators import compute_all_indicators
 from patterns import detect_all_patterns
 from signals import generate_signal
@@ -140,27 +143,37 @@ def _scan_single_stock(symbol: str, name: str, sector: str,
         return None
 
 
-def run_scanner(max_workers: int = 15, min_confidence: float = 0.45,
-                test_mode: bool = False):
+def run_scanner(max_workers: int = 8, min_confidence: float = 0.45,
+                test_mode: bool = False, full_mode: bool = False):
     """
-    Run the full scanner across all NSE stocks.
-    Updates scanner_state with progress and results.
+    Run the scanner across NSE stocks.
+    By default uses curated list of ~150 liquid stocks for speed.
+    Set full_mode=True to scan all 2000+ NSE stocks (slow).
     """
     scanner_state.reset()
 
     try:
-        # Get stock universe
-        universe = get_stock_universe()
+        # Choose universe
         if test_mode:
-            universe = universe[:10]  # Only scan 10 stocks in test mode
+            universe = FALLBACK_STOCKS[:10]
+            logger.info("Test mode: scanning 10 stocks")
+        elif full_mode:
+            universe = get_stock_universe()
+            logger.info(f"Full mode: scanning {len(universe)} stocks")
+        else:
+            # Default: use curated liquid stocks for fast, reliable results
+            universe = FALLBACK_STOCKS
+            logger.info(f"Curated mode: scanning {len(universe)} liquid stocks")
 
         scanner_state.total_stocks = len(universe)
-        logger.info(f"Starting scan of {len(universe)} stocks")
+        logger.info(f"Starting scan of {len(universe)} stocks with {max_workers} workers")
 
         # Fetch NIFTY data for relative strength
         nifty_df = fetch_nifty_data()
+        if nifty_df is None:
+            logger.warning("NIFTY data unavailable, relative strength will be skipped")
 
-        # Parallel scan
+        # Parallel scan with timeout
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = {}
             for sym, name, sector, exchange in universe:
@@ -169,15 +182,19 @@ def run_scanner(max_workers: int = 15, min_confidence: float = 0.45,
                 )
                 futures[fut] = (sym, name)
 
-            for future in as_completed(futures):
+            for future in as_completed(futures, timeout=600):
                 sym, name = futures[future]
                 try:
-                    result = future.result()
+                    result = future.result(timeout=30)
                     if result:
                         scanner_state.add_result(result)
                         scanner_state.update(stock=name, passed=True)
+                        logger.info(f"SIGNAL: {sym} - {result.get('pattern', {}).get('name', 'Unknown')}")
                     else:
                         scanner_state.update(stock=name, passed=False)
+                except TimeoutError:
+                    logger.warning(f"Timeout scanning {sym}")
+                    scanner_state.update(stock=name, passed=False)
                 except Exception as e:
                     logger.debug(f"Future error {sym}: {e}")
                     scanner_state.update(stock=name, passed=False)
@@ -189,6 +206,9 @@ def run_scanner(max_workers: int = 15, min_confidence: float = 0.45,
             f"{scanner_state.get_status()['elapsed_seconds']}s"
         )
 
+    except TimeoutError:
+        logger.error("Scanner timed out after 600 seconds")
+        scanner_state.finish(error="Scanner timed out")
     except Exception as e:
         logger.error(f"Scanner error: {e}")
         scanner_state.finish(error=str(e))

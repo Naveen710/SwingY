@@ -296,7 +296,7 @@ export default function Dashboard() {
     try {
       setIsScanning(true);
       setResults([]);
-      await startScan({ test: false, minConfidence: 0.45 });
+      await startScan({ test: false, minConfidence: 0.40 });
 
       // Start polling
       pollingRef.current = setInterval(pollStatus, 2000);
