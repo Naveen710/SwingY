@@ -1,0 +1,28 @@
+services:
+  # ── Backend (FastAPI) ──────────────────────────────────────────
+  - type: web
+    name: swing-scanner-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    plan: free
+    envVars:
+      - key: PYTHONUNBUFFERED
+        value: "1"
+    healthCheckPath: /api/health
+
+  # ── Frontend (Next.js) ─────────────────────────────────────────
+  - type: web
+    name: swing-scanner-web
+    runtime: docker
+    dockerfilePath: ./frontend/Dockerfile
+    dockerContext: ./frontend
+    plan: free
+    envVars:
+      - key: BACKEND_URL
+        fromService:
+          name: swing-scanner-api
+          type: web
+          property: hostport
+      - key: PORT
+        value: "3000"
