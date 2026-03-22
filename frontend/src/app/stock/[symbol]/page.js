@@ -269,7 +269,7 @@ export default function StockDetail() {
                     <h2 className="text-lg font-bold mb-4 flex items-center gap-2">
                         <span>🎯</span> Trade Setup
                     </h2>
-                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
+                    <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-4">
                         <div className="text-center p-3 bg-[var(--bg-secondary)] rounded-xl">
                             <p className="text-xs text-[var(--text-muted)] mb-1">Entry</p>
                             <p className="text-xl font-bold">₹{signal.entry?.toLocaleString("en-IN")}</p>
@@ -293,6 +293,10 @@ export default function StockDetail() {
                         <div className="text-center p-3 bg-[var(--bg-secondary)] rounded-xl">
                             <p className="text-xs text-[var(--text-muted)] mb-1">Profit (₹1L)</p>
                             <p className="text-xl font-bold text-green-400">₹{Math.round(signal.profit_on_1lakh).toLocaleString("en-IN")}</p>
+                        </div>
+                        <div className="text-center p-3 bg-[var(--bg-secondary)] rounded-xl">
+                            <p className="text-xs text-[var(--text-muted)] mb-1">Est. Days</p>
+                            <p className="text-xl font-bold text-amber-400">~{signal.estimated_days || "—"}d</p>
                         </div>
                     </div>
 

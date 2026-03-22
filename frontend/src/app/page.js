@@ -138,6 +138,7 @@ function ResultsTable({ results }) {
               <th>R:R</th>
               <th>Probability</th>
               <th>Profit (₹1L)</th>
+              <th>Est. Days</th>
               <th>Confidence</th>
             </tr>
           </thead>
@@ -187,6 +188,11 @@ function ResultsTable({ results }) {
                   ₹{Math.round(r.profit_on_1lakh).toLocaleString("en-IN")}
                 </td>
                 <td>
+                  <span className="text-sm font-medium text-amber-400">
+                    {r.estimated_days ? `~${r.estimated_days}d` : "—"}
+                  </span>
+                </td>
+                <td>
                   <div
                     className="confidence-meter"
                     style={{
@@ -231,7 +237,7 @@ function TopTradeCard({ trade }) {
               {trade.pattern?.name}
             </span>
           </div>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-center">
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-4 text-center">
             <div>
               <p className="text-xs text-[var(--text-muted)] mb-1">Entry</p>
               <p className="text-lg font-bold">₹{trade.entry?.toLocaleString("en-IN")}</p>
@@ -247,6 +253,10 @@ function TopTradeCard({ trade }) {
             <div>
               <p className="text-xs text-[var(--text-muted)] mb-1">Profit (₹1L)</p>
               <p className="text-lg font-bold text-green-400">₹{Math.round(trade.profit_on_1lakh).toLocaleString("en-IN")}</p>
+            </div>
+            <div>
+              <p className="text-xs text-[var(--text-muted)] mb-1">Est. Days</p>
+              <p className="text-lg font-bold text-amber-400">~{trade.estimated_days || "—"}d</p>
             </div>
           </div>
         </div>

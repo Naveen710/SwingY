@@ -10,8 +10,9 @@ from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError
 
 from data_fetcher import (
     get_stock_universe, fetch_ohlcv, fetch_nifty_data,
-    passes_universe_filter, FALLBACK_STOCKS
+    passes_universe_filter
 )
+from nifty500 import NIFTY_500_STOCKS
 from indicators import compute_all_indicators
 from patterns import detect_all_patterns
 from signals import generate_signal
@@ -155,14 +156,14 @@ def run_scanner(max_workers: int = 8, min_confidence: float = 0.45,
     try:
         # Choose universe
         if test_mode:
-            universe = FALLBACK_STOCKS[:10]
+            universe = NIFTY_500_STOCKS[:10]
             logger.info("Test mode: scanning 10 stocks")
         elif full_mode:
             universe = get_stock_universe()
             logger.info(f"Full mode: scanning {len(universe)} stocks")
         else:
             # Default: use curated liquid stocks for fast, reliable results
-            universe = FALLBACK_STOCKS
+            universe = NIFTY_500_STOCKS
             logger.info(f"Curated mode: scanning {len(universe)} liquid stocks")
 
         scanner_state.total_stocks = len(universe)

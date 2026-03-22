@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 class TradeSignal:
-    """A trade signal with entry, stop loss, target, and probability."""
+    """A trade signal with entry, stop loss, target, probability, and timeline."""
 
     def __init__(self, symbol: str, name: str, sector: str):
         self.symbol = symbol
@@ -31,6 +31,7 @@ class TradeSignal:
         self.probability = 0.0
         self.expected_return_pct = 0.0
         self.profit_on_1lakh = 0.0
+        self.estimated_days = 0  # Estimated trading days to hit target
         self.pattern = None  # PatternResult
         self.direction = "bullish"
         self.confluence_factors = []
@@ -49,6 +50,7 @@ class TradeSignal:
             "probability": round(self.probability * 100, 1),
             "expected_return_pct": round(self.expected_return_pct, 2),
             "profit_on_1lakh": round(self.profit_on_1lakh, 0),
+            "estimated_days": self.estimated_days,
             "direction": self.direction,
             "pattern": self.pattern.to_dict() if self.pattern else None,
             "confluence_factors": self.confluence_factors,
@@ -171,6 +173,72 @@ def _calculate_probability(df: pd.DataFrame, pattern: PatternResult, nifty_df=No
     return probability, factors
 
 
+def _estimate_days_to_target(df: pd.DataFrame, entry: float, target: float, direction: str) -> int:
+    """
+    Estimate trading days to hit target price.
+
+    Uses ATR (Average True Range) as daily move proxy and also factors in
+    historical average daily return to give a realistic swing trade timeline.
+    """
+    try:
+        distance = abs(target - entry)
+        if distance == 0 or entry == 0:
+            return 20
+
+        distance_pct = distance / entry
+
+        # Method 1: ATR-based estimate
+        # ATR represents typical daily range; assume price moves ~50% of ATR per day directionally
+        atr_days = None
+        if "ATR" in df.columns:
+            atr = df["ATR"].iloc[-1]
+            if atr > 0:
+                daily_move = atr * 0.5  # Conservative: 50% of ATR as directional move
+                atr_days = distance / daily_move
+
+        # Method 2: Historical average daily return
+        hist_days = None
+        if len(df) > 20:
+            daily_returns = df["Close"].pct_change().abs().tail(60)
+            avg_daily_return = daily_returns.mean()
+            if avg_daily_return > 0:
+                hist_days = distance_pct / avg_daily_return
+
+        # Method 3: Pattern-based heuristic
+        # Swing trades typically complete in 10-60 trading days
+        if distance_pct < 0.05:
+            pattern_days = 10
+        elif distance_pct < 0.10:
+            pattern_days = 20
+        elif distance_pct < 0.15:
+            pattern_days = 30
+        elif distance_pct < 0.20:
+            pattern_days = 40
+        else:
+            pattern_days = 50
+
+        # Weighted average of available methods
+        estimates = []
+        if atr_days is not None:
+            estimates.append(atr_days * 0.4)
+        if hist_days is not None:
+            estimates.append(hist_days * 0.3)
+        estimates.append(pattern_days * (0.3 if atr_days else 0.5))
+
+        raw_estimate = sum(estimates) / (0.4 + 0.3 + 0.3 if atr_days and hist_days else
+                                         0.4 + 0.3 if atr_days else
+                                         0.3 + 0.5 if hist_days else 0.5)
+        # Actually just sum the weighted estimates directly
+        raw_estimate = sum(estimates)
+
+        # Clamp to realistic swing trade range: 5-90 trading days
+        return max(5, min(90, round(raw_estimate)))
+
+    except Exception:
+        # Fallback: estimate from distance percentage
+        return max(5, min(60, round(distance_pct * 200)))
+
+
 def generate_signal(
     symbol: str, name: str, sector: str,
     df: pd.DataFrame, pattern: PatternResult,
@@ -214,13 +282,16 @@ def generate_signal(
         signal.probability, signal.confluence_factors = _calculate_probability(df, pattern, nifty_df)
         signal.confidence_score = signal.probability
 
-        # Expected return & profit on ₹1,00,000
+        # Expected return & profit on Rs.1,00,000
         if pattern.direction == "bullish":
             signal.expected_return_pct = ((signal.target - signal.entry) / signal.entry) * 100
         else:
             signal.expected_return_pct = ((signal.entry - signal.target) / signal.entry) * 100
 
         signal.profit_on_1lakh = 100000 * (signal.expected_return_pct / 100)
+
+        # Estimated days to hit target
+        signal.estimated_days = _estimate_days_to_target(df, signal.entry, signal.target, pattern.direction)
 
         return signal
 
