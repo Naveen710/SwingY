@@ -23,6 +23,6 @@ services:
         fromService:
           name: swing-scanner-api
           type: web
-          property: hostport
+          envVarKey: RENDER_EXTERNAL_URL
       - key: PORT
         value: "3000"
