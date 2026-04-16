@@ -456,6 +456,8 @@ def detect_cup_and_handle(df: pd.DataFrame) -> PatternResult | None:
 def detect_double_top(df: pd.DataFrame) -> PatternResult | None:
     """
     Double Top: M-pattern where price hits resistance twice and fails.
+    Requires clear structure: two peaks at similar price, meaningful trough between,
+    and price must have broken or be testing the neckline.
     """
     if len(df) < 50:
         return None
@@ -467,41 +469,65 @@ def detect_double_top(df: pd.DataFrame) -> PatternResult | None:
         if len(swing_highs) < 2:
             return None
 
-        for i in range(len(swing_highs) - 1):
-            high1 = swing_highs.iloc[i]
-            high2 = swing_highs.iloc[i + 1]
+        # Only consider the last 2 swing highs for recency
+        high1 = swing_highs.iloc[-2]
+        high2 = swing_highs.iloc[-1]
 
-            price_diff = abs(high1 - high2) / max(high1, high2)
+        price_diff = abs(high1 - high2) / max(high1, high2)
 
-            if price_diff < 0.03:
-                idx1 = swing_highs.index[i]
-                idx2 = swing_highs.index[i + 1]
+        if price_diff < 0.03:
+            idx1 = swing_highs.index[-2]
+            idx2 = swing_highs.index[-1]
 
-                between = recent.loc[idx1:idx2]
-                if len(between) < 5:
-                    continue
+            # Second peak must be recent (within last 25 bars)
+            bars_since_peak2 = len(df) - df.index.get_loc(idx2) - 1
+            if bars_since_peak2 > 25:
+                return None
 
-                neckline = float(between["Low"].min())
-                top = float(max(high1, high2))
-                close = float(df["Close"].iloc[-1])
+            between = recent.loc[idx1:idx2]
+            # Peaks must be separated by at least 10 bars
+            if len(between) < 10:
+                return None
 
-                if close < top * 0.97:
-                    confidence = 0.5
-                    if close < neckline:
-                        confidence += 0.2
-                    if "RSI" in df.columns and df["RSI"].iloc[-1] < 50:
-                        confidence += 0.1
+            neckline = float(between["Low"].min())
+            top = float(max(high1, high2))
+            close = float(df["Close"].iloc[-1])
 
-                    return PatternResult(
-                        name="Double Top",
-                        direction="bearish",
-                        confidence=min(confidence, 0.95),
-                        key_levels={
-                            "neckline": neckline,
-                            "top": top,
-                        },
-                        description=f"M-pattern with resistance at ₹{top:.2f}. Watch for neckline break below ₹{neckline:.2f}."
-                    )
+            # The trough must be meaningful (≥5% below tops)
+            trough_depth = (top - neckline) / top
+            if trough_depth < 0.05:
+                return None
+
+            # Price must be BELOW neckline (confirmed breakdown only)
+            if close >= neckline:
+                return None
+
+            confidence = 0.40
+            # How far below neckline
+            breakdown_depth = (neckline - close) / neckline
+            if breakdown_depth > 0.02:
+                confidence += 0.15
+            if trough_depth > 0.08:
+                confidence += 0.10
+            if "RSI" in df.columns and df["RSI"].iloc[-1] < 40:
+                confidence += 0.10
+            if "EMA20" in df.columns and "EMA50" in df.columns:
+                if df["EMA20"].iloc[-1] < df["EMA50"].iloc[-1]:
+                    confidence += 0.05
+            # Volume should increase on breakdown
+            if "Vol_Ratio" in df.columns and df["Vol_Ratio"].iloc[-1] > 1.3:
+                confidence += 0.05
+
+            return PatternResult(
+                name="Double Top",
+                direction="bearish",
+                confidence=min(confidence, 0.85),
+                key_levels={
+                    "neckline": neckline,
+                    "top": top,
+                },
+                description=f"M-pattern confirmed: resistance ₹{top:.2f}, neckline broken at ₹{neckline:.2f} (depth {trough_depth:.1%})."
+            )
     except Exception as e:
         logger.debug(f"Double Top detection error: {e}")
 
@@ -720,6 +746,7 @@ def detect_all_patterns(df: pd.DataFrame) -> list[PatternResult]:
     """
     Run all pattern detectors on a stock dataframe.
     Returns list of detected patterns sorted by confidence.
+    Bullish patterns are preferred when confidence is similar.
     """
     detected = []
     for detector in ALL_DETECTORS:
@@ -730,6 +757,10 @@ def detect_all_patterns(df: pd.DataFrame) -> list[PatternResult]:
         except Exception as e:
             logger.debug(f"Pattern detector {detector.__name__} error: {e}")
 
-    # Sort by confidence (highest first)
-    detected.sort(key=lambda x: x.confidence, reverse=True)
+    # Sort: bullish patterns get a small sorting boost (prefer actionable setups)
+    # Primary sort by confidence, secondary by direction (bullish first)
+    detected.sort(
+        key=lambda x: (x.confidence + (0.02 if x.direction == "bullish" else 0)),
+        reverse=True
+    )
     return detected
